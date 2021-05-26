@@ -28,12 +28,6 @@ typedef struct GlslProgram {
     std::map<std::string,GLint> uniforms;
 } GlslProgram;
 
-typedef struct ObjModel {
-    ObjLoader *model;
-    glm::mat4 mv_matrix;
-    glm::mat3 norm_matrix;
-} ObjModel;
-
 typedef struct AppData {
     // OpenGL window
     int window_width;
@@ -50,7 +44,7 @@ typedef struct AppData {
     IceTContext context;
     IceTImage image;
     // Model info
-    std::vector<ObjModel> model_list;
+    std::vector<ObjLoader*> model_list;
     GLuint plane_vertex_array;
     // Rendering info
     bool color_by_rank;
@@ -59,6 +53,8 @@ typedef struct AppData {
     glm::vec3 camera_position;
     glm::dmat4 projection_matrix;
     glm::dmat4 view_matrix;
+    glm::dmat4 model_matrix;
+    glm::dmat3 normal_matrix;
     double rotate_y;
     double render_time;
     GLuint vertex_position_attrib;
@@ -203,9 +199,9 @@ void parseCommandLineArgs(int argc, char **argv)
             app.window_height = std::stoi(argv[i + 1]);
             i += 2;
         }
-        if (argument == "--width" || argument == "-c")
+        else if (argument == "--color-by-rank" || argument == "-c")
         {
-            app.color_by_rank = false;
+            app.color_by_rank = true;
             i += 1;
         }
         else
@@ -305,14 +301,10 @@ void init()
     glm::vec3 point_light_col = glm::vec3(1.0, 1.0, 1.0);
     glm::vec2 point_light_atten = glm::vec2(32.0, 64.0);
 
-    // Upload static uniforms
-    float mat4_proj[16], mat4_view[16];
-    mat4ToFloatArray(app.projection_matrix, mat4_proj);
-    mat4ToFloatArray(app.view_matrix, mat4_view);
+    app.camera_position = glm::vec3(0.5, 2.8, -10.0);
 
+    // Upload static uniforms
     glUseProgram(app.glsl_program["color"].program);
-    glUniformMatrix4fv(app.glsl_program["color"].uniforms["projection_matrix"], 1, GL_FALSE, mat4_proj);
-    glUniformMatrix4fv(app.glsl_program["color"].uniforms["view_matrix"], 1, GL_FALSE, mat4_view);
     glUniform3fv(app.glsl_program["color"].uniforms["camera_position"], 1, glm::value_ptr(app.camera_position));
     glUniform3fv(app.glsl_program["color"].uniforms["light_ambient"], 1, glm::value_ptr(ambient));
     glUniform1i(app.glsl_program["color"].uniforms["num_lights"], 1);
@@ -322,8 +314,6 @@ void init()
     glUniform1i(app.glsl_program["color"].uniforms["num_spotlights"], 0);
     
     glUseProgram(app.glsl_program["texture"].program);
-    glUniformMatrix4fv(app.glsl_program["texture"].uniforms["projection_matrix"], 1, GL_FALSE, mat4_proj);
-    glUniformMatrix4fv(app.glsl_program["texture"].uniforms["view_matrix"], 1, GL_FALSE, mat4_view);
     glUniform3fv(app.glsl_program["texture"].uniforms["camera_position"], 1, glm::value_ptr(app.camera_position));
     glUniform3fv(app.glsl_program["texture"].uniforms["light_ambient"], 1, glm::value_ptr(ambient));
     glUniform1i(app.glsl_program["texture"].uniforms["num_lights"], 1);
@@ -334,8 +324,7 @@ void init()
 
     glUseProgram(app.glsl_program["nolight"].program);
     glUniformMatrix4fv(app.glsl_program["nolight"].uniforms["projection_matrix"], 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0)));
-    glUniformMatrix4fv(app.glsl_program["nolight"].uniforms["view_matrix"], 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0)));
-    glUniformMatrix4fv(app.glsl_program["nolight"].uniforms["model_matrix"], 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0)));
+    glUniformMatrix4fv(app.glsl_program["nolight"].uniforms["modelview_matrix"], 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0)));
     
     glUseProgram(0);
 }
@@ -360,22 +349,16 @@ void doFrame()
 
     double dt = now - app.render_time;
     app.rotate_y -= 15.0 * dt;
-
-    app.view_matrix = glm::rotate(glm::mat4(1.0), (float)glm::radians(app.rotate_y), glm::vec3(0.0, 1.0, 0.0));
-
-    int i;
-    for (i = 0; i < app.model_list.size(); i++)
-    {
-        app.model_list[i].mv_matrix = glm::rotate(glm::mat4(1.0), (float)glm::radians(app.rotate_y), glm::vec3(0.0, 1.0, 0.0));
-        app.model_list[i].norm_matrix = glm::inverse(app.model_list[i].mv_matrix);
-        app.model_list[i].norm_matrix = glm::transpose(app.model_list[i].norm_matrix);
-    }
+    app.model_matrix = glm::rotate(glm::dmat4(1.0), glm::radians(app.rotate_y), glm::dvec3(0.0, 1.0, 0.0));
+    app.normal_matrix = glm::inverse(app.model_matrix);
+    app.normal_matrix = glm::transpose(app.normal_matrix);
+    glm::dmat4 modelview_matrix = app.view_matrix * app.model_matrix;
 
     app.render_time = now;
 
     // Offscreen render and composit
     app.image = icetGL3DrawFrame(glm::value_ptr(app.projection_matrix),
-                                 glm::value_ptr(app.view_matrix));
+                                 glm::value_ptr(modelview_matrix));
 
     // Render composited image to fullscreen quad on screen of rank 0
     display();
@@ -393,20 +376,36 @@ void render(const IceTDouble *projection_matrix, const IceTDouble *modelview_mat
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    float mat4_proj[16], mat4_model[16], mat3_norm[9], mat4_view[16];
+    mat4ToFloatArray(app.projection_matrix, mat4_proj);
+    mat4ToFloatArray(app.view_matrix, mat4_view);
+    mat4ToFloatArray(app.model_matrix, mat4_model);
+    mat3ToFloatArray(app.normal_matrix, mat3_norm);
+
+    glUseProgram(app.glsl_program["color"].program);
+    glUniformMatrix4fv(app.glsl_program["color"].uniforms["projection_matrix"], 1, GL_FALSE, mat4_proj);
+    glUniformMatrix4fv(app.glsl_program["color"].uniforms["model_matrix"], 1, GL_FALSE, mat4_model);
+    glUniformMatrix3fv(app.glsl_program["color"].uniforms["normal_matrix"], 1, GL_FALSE, mat3_norm);
+    glUniformMatrix4fv(app.glsl_program["color"].uniforms["view_matrix"], 1, GL_FALSE, mat4_view);
+    glUseProgram(app.glsl_program["texture"].program);
+    glUniformMatrix4fv(app.glsl_program["texture"].uniforms["projection_matrix"], 1, GL_FALSE, mat4_proj);
+    glUniformMatrix4fv(app.glsl_program["texture"].uniforms["model_matrix"], 1, GL_FALSE, mat4_model);
+    glUniformMatrix3fv(app.glsl_program["texture"].uniforms["normal_matrix"], 1, GL_FALSE, mat3_norm);
+    glUniformMatrix4fv(app.glsl_program["texture"].uniforms["view_matrix"], 1, GL_FALSE, mat4_view);
+    glUseProgram(0);
+
     int i, j;
     for (i = 0; i < app.model_list.size(); i++)
     {
-        std::vector<Model> models = app.model_list[i].model->getModelList();
+        std::vector<Model> models = app.model_list[i]->getModelList();
         for (j = 0; j < models.size(); j++)
         {
             if (app.color_by_rank)
             {
                 glUseProgram(app.glsl_program["color"].program);
                 std::string program_name = "color";
-                Material mat = app.model_list[i].model->getMaterial(models[j].material_name);
+                Material mat = app.model_list[i]->getMaterial(models[j].material_name);
 
-                glUniformMatrix4fv(app.glsl_program[program_name].uniforms["model_matrix"], 1, GL_FALSE, glm::value_ptr(app.model_list[i].mv_matrix));
-                glUniformMatrix3fv(app.glsl_program[program_name].uniforms["normal_matrix"], 1, GL_FALSE, glm::value_ptr(app.model_list[i].norm_matrix));
                 glUniform3fv(app.glsl_program[program_name].uniforms["material_color"], 1, RANK_COLORS[app.rank]);
                 glUniform3fv(app.glsl_program[program_name].uniforms["material_specular"], 1, glm::value_ptr(mat.specular));
                 glUniform1f(app.glsl_program[program_name].uniforms["material_shininess"], mat.shininess);
@@ -414,7 +413,7 @@ void render(const IceTDouble *projection_matrix, const IceTDouble *modelview_mat
             else
             {
                 std::string program_name;
-                Material mat = app.model_list[i].model->getMaterial(models[j].material_name);
+                Material mat = app.model_list[i]->getMaterial(models[j].material_name);
 
                 if (mat.has_texture)
                 {
@@ -431,8 +430,6 @@ void render(const IceTDouble *projection_matrix, const IceTDouble *modelview_mat
                     program_name = "color";
                 }
 
-                glUniformMatrix4fv(app.glsl_program[program_name].uniforms["model_matrix"], 1, GL_FALSE, glm::value_ptr(app.model_list[i].mv_matrix));
-                glUniformMatrix3fv(app.glsl_program[program_name].uniforms["normal_matrix"], 1, GL_FALSE, glm::value_ptr(app.model_list[i].norm_matrix));
                 glUniform3fv(app.glsl_program[program_name].uniforms["material_color"], 1, glm::value_ptr(mat.color));
                 glUniform3fv(app.glsl_program[program_name].uniforms["material_specular"], 1, glm::value_ptr(mat.specular));
                 glUniform1f(app.glsl_program[program_name].uniforms["material_shininess"], mat.shininess);
@@ -545,12 +542,11 @@ void loadObjModels(std::string model_path, float bbox[6])
     int i;
     for (i = app.rank; i < obj_filenames.size(); i += app.num_proc)
     {
-        ObjModel model;
         std::string obj_path = model_path + "/" + obj_filenames[i];
-        model.model = new ObjLoader(obj_path.c_str());
+        ObjLoader *model = new ObjLoader(obj_path.c_str());
 
-        glm::vec3 center = model.model->getCenter();
-        glm::vec3 size = model.model->getSize();
+        glm::vec3 center = model->getCenter();
+        glm::vec3 size = model->getSize();
         if (center[0] - (size[0] / 2.0) < bbox[0])
         {
             bbox[0] = center[0] - (size[0] / 2.0);
@@ -575,9 +571,6 @@ void loadObjModels(std::string model_path, float bbox[6])
         {
             bbox[5] = center[2] + (size[2] / 2.0);
         }
-
-        model.mv_matrix = glm::mat4(1.0);
-        model.norm_matrix = glm::mat3(1.0);
         app.model_list.push_back(model);
     }
 }
