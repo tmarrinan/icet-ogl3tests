@@ -482,11 +482,15 @@ void display()
 
         if (app.outfile != "")
         {
+            int i;
             char filename[128];
             snprintf(filename, 128, "%s_%05d.ppm", app.outfile.c_str(), app.frame_count);
             FILE *fp = fopen(filename, "wb");
             fprintf(fp, "P6\n%d %d\n255\n", app.window_width, app.window_height);
-            fwrite(pixels, 4, app.window_width * app.window_height, fp);
+            for (i = 0; i < app.window_width * app.window_height; i++)
+            {
+                fwrite(pixels + (4 * i), 3, 1, fp);
+            }
             fclose(fp);
         }
     }
