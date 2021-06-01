@@ -39,6 +39,8 @@ typedef struct AppData {
     // FPS counter
     double frame_time_start;
     int num_frames;
+    // Frame counter
+    int frame_count;
     // IceT info
     IceTCommunicator comm;
     IceTContext context;
@@ -61,6 +63,8 @@ typedef struct AppData {
     GLuint vertex_normal_attrib;
     GLuint vertex_texcoord_attrib;
     GLuint composite_texture;
+    // Output to PPM image
+    std::string outfile;
 } AppData;
 
 const float RANK_COLORS[16][3] = {
@@ -183,6 +187,7 @@ void parseCommandLineArgs(int argc, char **argv)
     app.window_width = 1280;
     app.window_height = 720;
     app.color_by_rank = false;
+    app.outfile = "";
 
     // User options
     int i = 1;
@@ -204,6 +209,11 @@ void parseCommandLineArgs(int argc, char **argv)
             app.color_by_rank = true;
             i += 1;
         }
+        else if ((argument == "--outfile" || argument == "-o") && i < argc - 1)
+        {
+            app.outfile = argv[i + 1];
+            i += 2;
+        }
         else
         {
             i += 1;
@@ -221,6 +231,9 @@ void init()
     // Initialize FPS counter
     app.frame_time_start = MPI_Wtime();
     app.num_frames = 0;
+
+    // Initialize frame count
+    app.frame_count = 0;
 
     // Set IceT window configurations
     icetResetTiles();
@@ -364,6 +377,7 @@ void doFrame()
     display();
 
     app.num_frames++;
+    app.frame_count++;
 
     fflush(stdout);
 }
@@ -465,6 +479,16 @@ void display()
         glBindVertexArray(0);
 
         glUseProgram(0);
+
+        if (app.outfile != "")
+        {
+            char filename[128];
+            snprintf(filename, 128, "%s_%05d.ppm", app.outfile.c_str(), app.frame_count);
+            FILE *fp = fopen(filename, "wb");
+            fprintf(fp, "P6\n%d %d\n255\n", app.window_width, app.window_height);
+            fwrite(pixels, 4, app.window_width * app.window_height, fp);
+            fclose(fp);
+        }
     }
     
     // Synchronize and display
