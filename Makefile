@@ -23,14 +23,11 @@ ifeq ($(DETECTED_OS),Windows)
     MPI_INC= $(patsubst %\,%,$(MSMPI_INC))
     MPI_LIB= $(patsubst %\,%,$(MSMPI_LIB64))
 
-    INC= -I"$(MPI_INC)" -I"$(MPI_INC)\x64" -I"$(HOMEPATH)\local\include" -I.\include
-    LIB= -L"$(MPI_LIB)" -L"$(HOMEPATH)\local\lib" -lmsmpi -lIceTCore -lIceTGL3 -lIceTMPI -lglfw3dll -lglad
-else ifeq ($(DETECTED_OS),Linux)
-    INC= -I$(HOME)/local/include -I./include
-	LIB= -L$(HOME)/local/lib -lGL -lIceTCore -lIceTGL3 -lIceTMPI -lglfw -lglad
+    INC= -I"$(MPI_INC)" -I"$(MPI_INC)\x64" -I"$(HOMEPATH)\local\include" -I"$(HOMEPATH)\local\include\freetype2" -I.\include
+    LIB= -L"$(MPI_LIB)" -L"$(HOMEPATH)\local\lib" -lmsmpi -lIceTCore -lIceTGL3 -lIceTMPI -lglfw3dll -lglad -lfreetype
 else
-    INC= -I$(HOME)/local/include -I./include
-	LIB= -L$(HOME)/local/lib -lIceTCore -lIceTGL3 -lIceTMPI -lglfw -lglad
+    INC= -I$(HOME)/local/include -I$(HOME)/local/include/freetype2 -I./include
+	LIB= -L$(HOME)/local/lib -lGL -lIceTCore -lIceTGL3 -lIceTMPI -lglfw -lglad -lfreetype
 endif
 
 # Create output directories and set output file names
@@ -40,14 +37,14 @@ ifeq ($(DETECTED_OS),Windows)
     mkobjdir:= $(shell if not exist $(OBJDIR)\$(TEST2) mkdir $(OBJDIR)\$(TEST2))
     mkbindir:= $(shell if not exist $(BINDIR) mkdir $(BINDIR))
 
-    TEST1_OBJS= $(addprefix $(OBJDIR)\$(TEST1)\, main.o glslloader.o directory.o imgreader.o objloader.o)
+    TEST1_OBJS= $(addprefix $(OBJDIR)\$(TEST1)\, main.o glslloader.o directory.o imgreader.o objloader.o textrender.o)
     TEST1_EXEC= $(addprefix $(BINDIR)\, $(TEST1).exe)
     TEST2_OBJS= $(addprefix $(OBJDIR)\$(TEST2)\, main.o glslloader.o)
     TEST2_EXEC= $(addprefix $(BINDIR)\, $(TEST2).exe)
 else
     mkdirs:= $(shell mkdir -p $(OBJDIR)/$(TEST1) $(OBJDIR)/$(TEST2) $(BINDIR))
     
-    TEST1_OBJS= $(addprefix $(OBJDIR)/$(TEST1)/, main.o glslloader.o directory.o imgreader.o objloader.o)
+    TEST1_OBJS= $(addprefix $(OBJDIR)/$(TEST1)/, main.o glslloader.o directory.o imgreader.o objloader.o textrender.o)
     TEST1_EXEC= $(addprefix $(BINDIR)/, $(TEST1))
     TEST2_OBJS= $(addprefix $(OBJDIR)/$(TEST2)/, main.o glslloader.o)
     TEST2_EXEC= $(addprefix $(BINDIR)/, $(TEST2))

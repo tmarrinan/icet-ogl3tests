@@ -15,6 +15,8 @@
 #include "directory.h"
 #include "glslloader.h"
 #include "objloader.h"
+#include "imgreader.h"
+#include "textrender.h"
 
 #ifndef M_PI
 #define M_PI (3.14159265358979323846)
@@ -39,6 +41,7 @@ typedef struct AppData {
     // FPS counter
     double frame_time_start;
     int num_frames;
+    bool show_fps;
     // Frame counter
     int frame_count;
     // IceT info
@@ -57,12 +60,18 @@ typedef struct AppData {
     glm::dmat4 view_matrix;
     glm::dmat4 model_matrix;
     glm::dmat3 normal_matrix;
+    glm::dmat4 composite_mv_matrix;
+    GLuint text_background_texture;
+    GLuint text_texture;
+    glm::dmat4 text_background_mv_matrix;
+    glm::dmat4 text_mv_matrix;
     double rotate_y;
     double render_time;
     GLuint vertex_position_attrib;
     GLuint vertex_normal_attrib;
     GLuint vertex_texcoord_attrib;
     GLuint composite_texture;
+    TR_FontFace *font;
     // Output to PPM image
     std::string outfile;
 } AppData;
@@ -186,6 +195,7 @@ void parseCommandLineArgs(int argc, char **argv)
     // Defaults
     app.window_width = 1280;
     app.window_height = 720;
+    app.show_fps = false;
     app.color_by_rank = false;
     app.outfile = "";
 
@@ -203,6 +213,11 @@ void parseCommandLineArgs(int argc, char **argv)
         {
             app.window_height = std::stoi(argv[i + 1]);
             i += 2;
+        }
+        else if (argument == "--show-fps" || argument == "-f")
+        {
+            app.show_fps = true;
+            i += 1;
         }
         else if (argument == "--color-by-rank" || argument == "-c")
         {
@@ -234,6 +249,56 @@ void init()
 
     // Initialize frame count
     app.frame_count = 0;
+    
+    // Initialize text renderer
+    if (app.show_fps)
+    {
+        TR_Initialize();
+        TR_CreateFontFace("resrc/fonts/OpenSans-Regular.ttf", 20, &(app.font));
+        
+        int text_bg_w, text_bg_h;
+        uint8_t *text_bg_pixels;
+        imageFileToRgba("resrc/images/bg_135x60.png", &text_bg_w, &text_bg_h, &text_bg_pixels);
+        
+        glGenTextures(1, &(app.text_background_texture));
+        glBindTexture(GL_TEXTURE_2D, app.text_background_texture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, text_bg_w, text_bg_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, text_bg_pixels);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        
+        freeRgba(text_bg_pixels);
+        
+        double text_bg_width = text_bg_w;
+        double text_bg_height = text_bg_h;
+        app.text_background_mv_matrix = glm::translate(glm::dmat4(1.0), glm::dvec3((text_bg_width / 2.0) + 10.0,
+                                                       (double)app.window_height - (text_bg_height / 2.0) - 10.0, 0.0));
+        app.text_background_mv_matrix = glm::scale(app.text_background_mv_matrix, glm::dvec3(text_bg_width, text_bg_height, 1.0));
+        
+        
+        uint32_t text_w, text_h, baseline;
+        uint8_t *text_pixels;
+        TR_RenderStringToTexture(app.font, "0.00 fps", true, &text_w, &text_h, &baseline, &text_pixels);
+        
+        glGenTextures(1, &(app.text_texture));
+        glBindTexture(GL_TEXTURE_2D, app.text_texture);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, text_w, text_h, 0, GL_RED, GL_UNSIGNED_BYTE, text_pixels);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        
+        free(text_pixels);
+        
+        double text_width = text_w;
+        double text_height = text_h;
+        app.text_mv_matrix = glm::translate(glm::dmat4(1.0), glm::dvec3((text_width / 2.0) + 28.0,
+                                            (double)app.window_height - (text_height / 2.0) - baseline - 16.0, 0.1));
+        app.text_mv_matrix = glm::scale(app.text_mv_matrix, glm::dvec3(text_width, text_height, 1.0));
+    }
 
     // Set IceT window configurations
     icetResetTiles();
@@ -264,10 +329,14 @@ void init()
     app.projection_matrix = glm::perspective(glm::radians(60.0), (double)app.window_width / (double)app.window_height, 0.1, 250.0);
     app.camera_position = glm::vec3(0.5, 2.8, -10.0);
     app.view_matrix = glm::lookAt(app.camera_position, glm::vec3(0.5, 1.7, 0.0), glm::vec3(0.0, 1.0, 0.0));
+    app.composite_mv_matrix = glm::translate(glm::dmat4(1.0), glm::dvec3((double)app.window_width / 2.0, (double)app.window_height / 2.0, -0.5));
+    app.composite_mv_matrix = glm::scale(app.composite_mv_matrix, glm::dvec3((double)app.window_width, (double)app.window_height, 1.0));
 
     // Set OpenGL settings
     glClearColor(app.background_color[0], app.background_color[1], app.background_color[2], app.background_color[3]);
     glEnable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glViewport(0, 0, app.window_width, app.window_height);
 
     // Initialize vertex attributes
@@ -279,6 +348,7 @@ void init()
     loadShader("color", "resrc/shaders/color");
     loadShader("texture", "resrc/shaders/texture");
     loadShader("nolight", "resrc/shaders/nolight_texture");
+    loadShader("text", "resrc/shaders/text");
 
     // Load nuclear station OBJ models
     float bbox[6];
@@ -335,10 +405,6 @@ void init()
     glUniform2fv(app.glsl_program["texture"].uniforms["light_attenuation[0]"], 1, glm::value_ptr(point_light_atten));
     glUniform1i(app.glsl_program["texture"].uniforms["num_spotlights"], 0);
 
-    glUseProgram(app.glsl_program["nolight"].program);
-    glUniformMatrix4fv(app.glsl_program["nolight"].uniforms["projection_matrix"], 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0)));
-    glUniformMatrix4fv(app.glsl_program["nolight"].uniforms["modelview_matrix"], 1, GL_FALSE, glm::value_ptr(glm::mat4(1.0)));
-    
     glUseProgram(0);
 }
 
@@ -350,10 +416,29 @@ void doFrame()
     {
         now = MPI_Wtime();
 
-        // Print FPS every 2 seconds
-        if (now - app.frame_time_start > 2.0)
+        // Update FPS every 500 milliseconds
+        if (app.show_fps && now - app.frame_time_start > 0.5)
         {
-            printf("FPS: %.1lf\n", (double)app.num_frames / (now - app.frame_time_start));
+            //printf("FPS: %.1lf\n", (double)app.num_frames / (now - app.frame_time_start));
+            uint32_t text_w, text_h, baseline;
+            uint8_t *text_pixels;
+            char fps_str[16];
+            snprintf(fps_str, 16, "%.2lf fps", (double)app.num_frames / (now - app.frame_time_start));
+            TR_RenderStringToTexture(app.font, fps_str, true, &text_w, &text_h, &baseline, &text_pixels);
+            
+            glBindTexture(GL_TEXTURE_2D, app.text_texture);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, text_w, text_h, 0, GL_RED, GL_UNSIGNED_BYTE, text_pixels);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            
+            free(text_pixels);
+            
+            double text_width = text_w;
+            double text_height = text_h;
+            app.text_mv_matrix = glm::translate(glm::dmat4(1.0), glm::dvec3((text_width / 2.0) + 28.0,
+                                                (double)app.window_height - (text_height / 2.0) - baseline - 16.0, 0.1));
+            app.text_mv_matrix = glm::scale(app.text_mv_matrix, glm::dvec3(text_width, text_height, 1.0));
+
+
             app.frame_time_start = now;
             app.num_frames = 0;
         }
@@ -466,6 +551,12 @@ void display()
     if (app.rank == 0)
     {
         glUseProgram(app.glsl_program["nolight"].program);
+        
+        float mat4_projection[16], mat4_modelview[16];
+        mat4ToFloatArray(glm::ortho(0.0, (double)app.window_width, 0.0, (double)app.window_height, -1.0, 1.0), mat4_projection);
+        mat4ToFloatArray(app.composite_mv_matrix, mat4_modelview);
+        glUniformMatrix4fv(app.glsl_program["nolight"].uniforms["projection_matrix"], 1, GL_FALSE, mat4_projection);
+        glUniformMatrix4fv(app.glsl_program["nolight"].uniforms["modelview_matrix"], 1, GL_FALSE, mat4_modelview);
    
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, app.composite_texture);
@@ -474,8 +565,34 @@ void display()
         glUniform1i(app.glsl_program["nolight"].uniforms["image"], 0);
 
         glBindVertexArray(app.plane_vertex_array);
+        
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
-        glBindTexture(GL_TEXTURE_2D, 0);
+        
+        if (app.show_fps)
+        {
+            mat4ToFloatArray(app.text_background_mv_matrix, mat4_modelview);
+            glBindTexture(GL_TEXTURE_2D, app.text_background_texture);
+            glUniformMatrix4fv(app.glsl_program["nolight"].uniforms["modelview_matrix"], 1, GL_FALSE, mat4_modelview);
+            
+            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+            
+            
+            glUseProgram(app.glsl_program["text"].program);
+            
+            mat4ToFloatArray(app.text_mv_matrix, mat4_modelview);
+            glUniformMatrix4fv(app.glsl_program["text"].uniforms["projection_matrix"], 1, GL_FALSE, mat4_projection);
+            glUniformMatrix4fv(app.glsl_program["text"].uniforms["modelview_matrix"], 1, GL_FALSE, mat4_modelview);
+            
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, app.text_texture);
+            glUniform1i(app.glsl_program["text"].uniforms["image"], 0);
+            
+            float white[3] = {1.0, 1.0, 1.0};
+            glUniform3fv(app.glsl_program["text"].uniforms["font_color"], 1, white);
+            
+            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, 0);
+        }
+        
         glBindVertexArray(0);
 
         glUseProgram(0);
@@ -615,10 +732,10 @@ GLuint planeVertexArray()
     glGenBuffers(1, &vertex_position_buffer);
     glBindBuffer(GL_ARRAY_BUFFER, vertex_position_buffer);
     GLfloat vertices[12] = {
-        -1.0, -1.0,  0.0,
-         1.0, -1.0,  0.0,
-         1.0,  1.0,  0.0,
-        -1.0,  1.0,  0.0
+        -0.5, -0.5,  0.0,
+         0.5, -0.5,  0.0,
+         0.5,  0.5,  0.0,
+        -0.5,  0.5,  0.0
     };
     glBufferData(GL_ARRAY_BUFFER, 12 * sizeof(GLfloat), vertices, GL_STATIC_DRAW);
     glEnableVertexAttribArray(app.vertex_position_attrib);
