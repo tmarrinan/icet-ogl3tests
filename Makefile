@@ -6,7 +6,11 @@ else
 endif
 
 # Set compiler and flags
+ifeq ($(DETECTED_OS),Windows)
 CXX= g++
+else
+CXX= mpicxx
+endif
 CXXFLAGS+= -std=c++11
 
 # Tests
