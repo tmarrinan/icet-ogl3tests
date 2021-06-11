@@ -33,7 +33,7 @@ else ifeq ($(DETECTED_OS),Darwin)
     INC= -I$(HOME)/local/include -I/usr/local/include/freetype2 -I./include
     LIB= -L$(HOME)/local/lib -lIceTCore -lIceTGL3 -lIceTMPI -lglfw -lglad -lfreetype
 else
-    INC= -I$(HOME)/local/include -I/usr/local/include/freetype2 -I./include
+    INC= -I$(HOME)/local/include -I$(HOME)/local/include/freetype2 -I./include
     LIB= -L$(HOME)/local/lib -lGL -lIceTCore -lIceTGL3 -lIceTMPI -lglfw -lglad -lfreetype
 endif
 
