@@ -12,7 +12,7 @@ ObjLoader::ObjLoader(const char *filename)
     std::vector<Group> groups;
 
     readObjFile(filename, vertices, normals, texcoords, groups);
-    createModels(vertices, normals, texcoords, groups);
+    _num_triangles = createModels(vertices, normals, texcoords, groups);
 }
 
 ObjLoader::~ObjLoader()
@@ -167,10 +167,10 @@ void ObjLoader::readObjFile(const char *filename, std::vector<glm::vec3> &vertic
     _size.z = max_coord[2] - min_coord[2];
 }
 
-void ObjLoader::createModels(std::vector<glm::vec3> &vertices,
-                             std::vector<glm::vec3> &normals,
-                             std::vector<glm::vec2> &texcoords,
-                             std::vector<Group> &groups)
+unsigned int ObjLoader::createModels(std::vector<glm::vec3> &vertices,
+                                     std::vector<glm::vec3> &normals,
+                                     std::vector<glm::vec2> &texcoords,
+                                     std::vector<Group> &groups)
 {
     int i, j, k;
     int face_count = 0;
@@ -288,7 +288,7 @@ void ObjLoader::createModels(std::vector<glm::vec3> &vertices,
         _models.push_back(model);
     }
 
-    printf("OBJ: %d triangles\n", face_count);
+    return face_count;
 }
 
 void ObjLoader::loadMtl(const char *filename)
@@ -397,6 +397,11 @@ glm::vec3& ObjLoader::getCenter()
 glm::vec3& ObjLoader::getSize()
 {
     return _size;
+}
+
+unsigned int ObjLoader::getNumberOfTriangles()
+{
+    return _num_triangles;
 }
 
 int ObjLoader::findGroupByName(std::vector<Group> &groups, std::string material_name)

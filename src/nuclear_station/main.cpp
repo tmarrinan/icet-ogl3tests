@@ -685,6 +685,7 @@ void loadObjModels(std::string model_path, float bbox[6])
     std::vector<std::string> obj_filenames = directory::listFiles(model_path, "obj");
     
     int i;
+    uint32_t total_triangles = 0;
     for (i = app.rank; i < obj_filenames.size(); i += app.num_proc)
     {
         std::string obj_path = model_path + "/" + obj_filenames[i];
@@ -716,8 +717,11 @@ void loadObjModels(std::string model_path, float bbox[6])
         {
             bbox[5] = center[2] + (size[2] / 2.0);
         }
+        total_triangles += model->getNumberOfTriangles();
         app.model_list.push_back(model);
     }
+
+    printf("[rank % 2d]: %u triangles\n", app.rank, total_triangles);
 }
 
 GLuint planeVertexArray()

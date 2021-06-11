@@ -49,6 +49,7 @@ private:
     GLuint _texcoord_attrib;
     glm::vec3 _center;
     glm::vec3 _size;
+    unsigned int _num_triangles; 
 
     int findGroupByName(std::vector<Group> &groups, std::string material_name);
 
@@ -60,16 +61,17 @@ public:
                                            std::vector<glm::vec3> &normals,
                                            std::vector<glm::vec2> &texcoords,
                                            std::vector<Group> &groups);
-    void createModels(std::vector<glm::vec3> &vertices,
-                      std::vector<glm::vec3> &normals,
-                      std::vector<glm::vec2> &texcoords,
-                      std::vector<Group> &groups);
+    unsigned int createModels(std::vector<glm::vec3> &vertices,
+                              std::vector<glm::vec3> &normals,
+                              std::vector<glm::vec2> &texcoords,
+                              std::vector<Group> &groups);
     void loadMtl(const char *filename);
     void createMaterialTexture(const char *filename, GLuint *texture_id);
     std::vector<Model>& getModelList();
     Material& getMaterial(std::string name);
     glm::vec3& getCenter();
     glm::vec3& getSize();
+    unsigned int getNumberOfTriangles();
 };
 
 #endif // OBJ_LOADER_H
