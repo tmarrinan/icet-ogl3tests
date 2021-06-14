@@ -62,6 +62,9 @@ typedef struct AppData {
     GLuint background_texture;
     GLuint composite_texture;
     GLuint plane_vertex_array;
+    GLuint framebuffer;           // only used in IceT generic compositing
+    GLuint framebuffer_texture;   // only used in IceT generic compositing
+    GLuint framebuffer_depth;     // only used in IceT generic compositing
     // Frame counter
     int frame_count;
     // Scene info
@@ -80,8 +83,12 @@ typedef struct AppData {
 void parseCommandLineArgs(int argc, char **argv);
 void init();
 void doFrame();
-void render(const IceTDouble *projection_matrix, const IceTDouble *modelview_matrix,
-            const IceTInt *readback_viewport, IceTUInt framebuffer_id);
+void renderIceTOGL3(const IceTDouble *projection_matrix, const IceTDouble *modelview_matrix,
+                    const IceTInt *readback_viewport, IceTUInt framebuffer_id);
+void renderIceTGeneric(const IceTDouble *projection_matrix, const IceTDouble *modelview_matrix,
+                       const IceTFloat *background_color, const IceTInt *readback_viewport,
+                       IceTImage result);
+void render();
 void display();
 void mat4ToFloatArray(glm::dmat4 mat4, float array[16]);
 void loadPointCloudShader();
@@ -199,10 +206,18 @@ void parseCommandLineArgs(int argc, char **argv)
 
 void init()
 {
+#ifdef USE_ICET_OGL3
+    printf("[Rank % 3d] Using IceT OGL3 Interface\n", app.rank);
+#else
+    printf("[Rank % 3d] Using IceT Generic Rendering Interface\n", app.rank);
+#endif
+
     // Initialize IceT
     app.comm = icetCreateMPICommunicator(MPI_COMM_WORLD);
     app.context = icetCreateContext(app.comm);
+#ifdef USE_ICET_OGL3
     icetGL3Initialize();
+#endif
 
     // Set IceT window configurations
     icetResetTiles();
@@ -216,8 +231,36 @@ void init()
     icetSetColorFormat(ICET_IMAGE_COLOR_RGBA_UBYTE);
     icetSetDepthFormat(ICET_IMAGE_DEPTH_FLOAT);
 
-    // Set IceT draw callback (main render function) 
-    icetGL3DrawCallbackTexture(render);
+    // Set IceT draw callback (main render function)
+#ifdef USE_ICET_OGL3
+    icetGL3DrawCallbackTexture(renderIceTOGL3);
+#else
+    glGenTextures(1, &(app.framebuffer_texture));
+    glBindTexture(GL_TEXTURE_2D, app.framebuffer_texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, app.window_width, app.window_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glGenTextures(1, &(app.framebuffer_depth));
+    glBindTexture(GL_TEXTURE_2D, app.framebuffer_depth);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, app.window_width, app.window_height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glGenFramebuffers(1, &(app.framebuffer));
+    glBindFramebuffer(GL_FRAMEBUFFER, app.framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, app.framebuffer_texture, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, app.framebuffer_depth, 0);
+    GLenum draw_buffers[1] = {GL_COLOR_ATTACHMENT0};
+    glDrawBuffers(1, draw_buffers);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    icetDrawCallback(renderIceTGeneric);
+#endif
 
     // Initialize frame count
     app.frame_count = 0;
@@ -278,9 +321,11 @@ void init()
     // Load point cloud data
     float bbox[6];
     loadPointCloudData("resrc/data/osm_gps_2012.pcd", bbox);
+#ifdef USE_ICET_OGL3
     icetBoundingBoxf(bbox[0], bbox[1], bbox[2], bbox[3], bbox[4], bbox[5]);
-    printf("Point Cloud Bounding-Box: x = [%.2f, %.2f], y = [%.2f, %.2f], z = [%.2f, %.2f]\n",
-           bbox[0], bbox[1], bbox[2], bbox[3], bbox[4], bbox[5]);
+#endif
+    printf("[Rank % 3d] Point Cloud Bounding-Box: x = [%.2f, %.2f], y = [%.2f, %.2f], z = [%.2f, %.2f]\n",
+           app.rank, bbox[0], bbox[1], bbox[2], bbox[3], bbox[4], bbox[5]);
     float x_min, y_min, z_min, x_max, y_max, z_max;
     MPI_Allreduce(&(bbox[0]), &x_min, 1, MPI_FLOAT, MPI_MIN, MPI_COMM_WORLD);
     MPI_Allreduce(&(bbox[2]), &y_min, 1, MPI_FLOAT, MPI_MIN, MPI_COMM_WORLD);
@@ -334,8 +379,14 @@ void doFrame()
 {
     // Offscreen render and composit
     glm::dmat4 modelview_matrix = app.view_matrix * app.model_matrix;
+#ifdef USE_ICET_OGL3
     app.image = icetGL3DrawFrame(glm::value_ptr(app.projection_matrix),
                                  glm::value_ptr(modelview_matrix));
+#else
+    app.image = icetDrawFrame(glm::value_ptr(app.projection_matrix),
+                              glm::value_ptr(app.view_matrix),
+                              glm::value_ptr(app.background_color));
+#endif
 
     // Render composited image to fullscreen quad on screen of rank 0
     display();
@@ -355,12 +406,45 @@ void doFrame()
     glUseProgram(0);
 }
 
-void render(const IceTDouble *projection_matrix, const IceTDouble *modelview_matrix,
-            const IceTInt *readback_viewport, IceTUInt framebuffer_id)
+void renderIceTOGL3(const IceTDouble *projection_matrix, const IceTDouble *modelview_matrix,
+                    const IceTInt *readback_viewport, IceTUInt framebuffer_id)
 {
     // Render to IceT framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, framebuffer_id);
 
+    // Render
+    render();
+
+    // Deselect IceT framebuffer
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+void renderIceTGeneric(const IceTDouble *projection_matrix, const IceTDouble *modelview_matrix,
+                       const IceTFloat *background_color, const IceTInt *readback_viewport,
+                       IceTImage result)
+{
+    // Render to app's framebuffer
+    glBindFramebuffer(GL_FRAMEBUFFER, app.framebuffer);
+
+    // Render
+    render();
+
+    // Deselect IceT framebuffer
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // Copy image to IceT buffer
+    IceTUByte *pixels = icetImageGetColorub(result);
+    IceTFloat *depth = icetImageGetDepthf(result);
+
+    glBindTexture(GL_TEXTURE_2D, app.framebuffer_texture);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glBindTexture(GL_TEXTURE_2D, app.framebuffer_depth);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, GL_FLOAT, depth);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+void render()
+{
     // Clear frame
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -375,9 +459,6 @@ void render(const IceTDouble *projection_matrix, const IceTDouble *modelview_mat
 
     // Deseclect shader program
     glUseProgram(0);
-
-    // Deselect IceT framebuffer
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 void display()

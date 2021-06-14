@@ -6,6 +6,9 @@ else
 endif
 
 # Set compiler and flags
+#
+# Use `make CXXFLAGS=-DUSE_ICET_OGL3` to enable OpenGL 3 IceT compositing
+#
 ifeq ($(DETECTED_OS),Windows)
 CXX= g++
 else
