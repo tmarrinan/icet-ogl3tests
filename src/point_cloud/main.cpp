@@ -3,6 +3,7 @@
 #include <sstream>
 #include <string>
 #include <map>
+#include <cmath>
 #include <glad/glad.h>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -77,6 +78,8 @@ typedef struct AppData {
     glm::mat4 background_modelview_matrix;
     double rotate_y;
     Scene scene;
+    // Output file name
+    std::string outfile;
 } AppData;
 
 
@@ -195,6 +198,11 @@ void parseCommandLineArgs(int argc, char **argv)
         else if ((argument == "--height" || argument == "-h") && i < argc - 1)
         {
             app.window_height = std::stoi(argv[i + 1]);
+            i += 2;
+        }
+        else if ((argument == "--outfile" || argument == "-o") && i < argc - 1)
+        {
+            app.outfile = argv[i + 1];
             i += 2;
         }
         else
@@ -495,6 +503,46 @@ void display()
         glBindVertexArray(0);
 
         glUseProgram(0);
+
+        if (app.outfile != "")
+        {
+            int i, x, y;
+            double dist;
+            char filename[128];
+            snprintf(filename, 128, "%s_%05d.ppm", app.outfile.c_str(), app.frame_count);
+            double circle_radius = 0.3984 * (double)app.window_height;
+            uint32_t circle_x = app.window_width / 2;
+            uint32_t circle_y = app.window_height / 2;
+            uint8_t px_col[3];
+            FILE *fp = fopen(filename, "wb");
+            fprintf(fp, "P6\n%d %d\n255\n", app.window_width, app.window_height);
+            for (i = 0; i < app.window_width * app.window_height; i++)
+            {
+                px_col[0] = pixels[4 * i + 0];
+                px_col[1] = pixels[4 * i + 1];
+                px_col[2] = pixels[4 * i + 2];
+                if (pixels[4 * i + 3] == 0)
+                {
+                    x = i % app.window_width;
+                    y = i / app.window_width;
+                    dist = sqrt((x - circle_x) * (x - circle_x) + (y - circle_y) * (y - circle_y));
+                    if (dist <= circle_radius)
+                    {
+                        px_col[0] = 0;
+                        px_col[1] = 0;
+                        px_col[2] = 0;
+                    }
+                    else
+                    {
+                        px_col[0] = 60;
+                        px_col[1] = 60;
+                        px_col[2] = 60;
+                    }
+                }
+                fwrite(px_col, 3, 1, fp);
+            }
+            fclose(fp);
+        }
     }
 
     // Display frame
