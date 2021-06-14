@@ -31,23 +31,23 @@ typedef struct GlslProgram {
 } GlslProgram;
 
 typedef struct AppData {
+    // MPI info
+    int rank;
+    int num_proc;
     // OpenGL window
     int window_width;
     int window_height;
     GLFWwindow *window;
-    // MPI info
-    int rank;
-    int num_proc;
+    // IceT info
+    IceTCommunicator comm;
+    IceTContext context;
+    IceTImage image;
     // FPS counter
     double frame_time_start;
     int num_frames;
     bool show_fps;
     // Frame counter
     int frame_count;
-    // IceT info
-    IceTCommunicator comm;
-    IceTContext context;
-    IceTImage image;
     // Model info
     std::vector<ObjLoader*> model_list;
     GLuint plane_vertex_array;

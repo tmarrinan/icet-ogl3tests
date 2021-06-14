@@ -46,14 +46,14 @@ ifeq ($(DETECTED_OS),Windows)
 
     TEST1_OBJS= $(addprefix $(OBJDIR)\$(TEST1)\, main.o glslloader.o directory.o imgreader.o objloader.o textrender.o)
     TEST1_EXEC= $(addprefix $(BINDIR)\, $(TEST1).exe)
-    TEST2_OBJS= $(addprefix $(OBJDIR)\$(TEST2)\, main.o glslloader.o)
+    TEST2_OBJS= $(addprefix $(OBJDIR)\$(TEST2)\, main.o glslloader.o imgreader.o)
     TEST2_EXEC= $(addprefix $(BINDIR)\, $(TEST2).exe)
 else
     mkdirs:= $(shell mkdir -p $(OBJDIR)/$(TEST1) $(OBJDIR)/$(TEST2) $(BINDIR))
     
     TEST1_OBJS= $(addprefix $(OBJDIR)/$(TEST1)/, main.o glslloader.o directory.o imgreader.o objloader.o textrender.o)
     TEST1_EXEC= $(addprefix $(BINDIR)/, $(TEST1))
-    TEST2_OBJS= $(addprefix $(OBJDIR)/$(TEST2)/, main.o glslloader.o)
+    TEST2_OBJS= $(addprefix $(OBJDIR)/$(TEST2)/, main.o glslloader.o imgreader.o)
     TEST2_EXEC= $(addprefix $(BINDIR)/, $(TEST2))
 endif
 
