@@ -122,14 +122,14 @@ int main(int argc, char **argv)
     if (!glfwInit())
     {
         fprintf(stderr, "Error: could not initialize GLFW\n");
-        exit(EXIT_FAILURE);
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
     }
 
     // Create a window and its OpenGL context
     char title[32];
     snprintf(title, 32, "%s (%d)", WINDOW_TITLE, app.rank);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     if (app.rank == 0)
@@ -149,7 +149,7 @@ int main(int argc, char **argv)
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
         fprintf(stderr, "Error: could not initialize GLAD\n");
-        exit(EXIT_FAILURE);
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
     }
 
     // Initialize app
@@ -158,7 +158,7 @@ int main(int argc, char **argv)
     // Main render loop
     double start_time, end_time, elapsed, compress_time, read_time, collect;
     uint16_t should_close = 0;
-    uint32_t animation_frames = 1440;
+    uint32_t animation_frames = 180; //1440;
     if (app.rank == 0)
     {
         start_time = MPI_Wtime();
@@ -375,7 +375,8 @@ void init()
 
     // Load point cloud data
     float bbox[6];
-    loadPointCloudData("resrc/data/osm_gps_2012.pcd", bbox);
+    //loadPointCloudData("resrc/data/osm_gps_2012.pcd", bbox);
+    loadPointCloudData("/projects/visualization/marrinan/data/OpenStreetMap_BulkGPS/pointcloud/resrc/data/osm_gps_2012_277M.pcd", bbox);
 #ifdef USE_ICET_OGL3
     icetBoundingBoxf(bbox[0], bbox[1], bbox[2], bbox[3], bbox[4], bbox[5]);
 #endif
@@ -681,6 +682,11 @@ void loadPointCloudData(const char *filename, float bbox[6])
     const int POINTS = 5;
 
     std::ifstream scene_file(filename, std::ios::binary);
+    if (!scene_file.is_open())
+    {
+        fprintf(stderr, "Error: could not open Point Cloud Data file\n");
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+    }
     std::string line;
     int i;
     int section = CAMERA_POSITION;
@@ -898,11 +904,11 @@ GLuint createPointCloudVertexArray(GLfloat *point_centers, GLfloat *point_colors
     glGenBuffers(1, &point_size_buffer);
     // Set newly created buffer as the active one we are modifying
     glBindBuffer(GL_ARRAY_BUFFER, point_size_buffer);
-    // Store array of point colors in the point_color_buffer
+    // Store array of point sizes in the point_color_buffer
     glBufferData(GL_ARRAY_BUFFER, app.scene.num_points * sizeof(GLfloat), point_sizes, GL_STATIC_DRAW);
-    // Enable point_color_attrib in our GPU program
+    // Enable point_size_attrib in our GPU program
     glEnableVertexAttribArray(app.point_size_attrib);
-    // Attach point_color_buffer to the point_color_attrib
+    // Attach point_size_buffer to the point_size_attrib
     // (as 1-component floating point values)
     glVertexAttribPointer(app.point_size_attrib, 1, GL_FLOAT, false, 0, 0);
     // advance one vertex attribute per instance

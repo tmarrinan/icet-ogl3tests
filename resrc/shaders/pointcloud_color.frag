@@ -1,4 +1,4 @@
-#version 150
+#version 330
 
 in vec3 world_position;
 in mat3 world_normal_mat;
