@@ -68,6 +68,7 @@ typedef struct AppData {
     GLuint framebuffer_depth;     // only used in IceT generic compositing
     // Frame counter
     int frame_count;
+    double pixel_read_time;       // only used in IceT generic compositing
     // Scene info
     glm::vec4 background_color;
     glm::dmat4 projection_matrix;
@@ -155,7 +156,13 @@ int main(int argc, char **argv)
     init();
 
     // Main render loop
+    double start_time, end_time, elapsed, compress_time, read_time, collect;
     uint16_t should_close = 0;
+    uint32_t animation_frames = 1440;
+    if (app.rank == 0)
+    {
+        start_time = MPI_Wtime();
+    }
     while (!should_close)
     {
         // Render frame
@@ -166,7 +173,42 @@ int main(int argc, char **argv)
 
         // check if any window has been closed
         uint16_t close_this = glfwWindowShouldClose(app.window);
+        close_this |= (app.frame_count == animation_frames);
         MPI_Allreduce(&close_this, &should_close, 1, MPI_UINT16_T, MPI_SUM, MPI_COMM_WORLD);
+    }
+    if (app.rank == 0)
+    {
+        end_time = MPI_Wtime();
+        elapsed = end_time - start_time;
+    }
+
+    // AVERAGE or MAX more useful???
+    icetGetDoublev(ICET_COMPRESS_TIME, &compress_time);
+    MPI_Reduce(&compress_time, &collect, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    compress_time = collect / (double)app.num_proc;
+#ifdef USE_ICET_OGL3
+    icetGetDoublev(ICET_BUFFER_READ_TIME, &read_time);
+#else
+    read_time = app.pixel_read_time;
+#endif
+    MPI_Reduce(&read_time, &collect, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    read_time = collect / (double)app.num_proc;
+
+    if (app.rank == 0)
+    {
+        double avg_fps = animation_frames / elapsed;
+        double avg_compress_time = compress_time / animation_frames;
+        double avg_read_time = read_time / animation_frames;
+#ifdef USE_ICET_OGL3
+        const char *composite_method = "IceT OGL3";
+#else
+        const char *composite_method = "IceT Generic";
+#endif
+        printf("Data Set, Image Width, Image Height, Composite Method, Number of Processes\n");
+        printf("GPS Point Cloud, %d, %d, %s, %d\n\n", app.window_width, app.window_height,
+               composite_method, app.num_proc);
+        printf("Average FPS, Average Compression Compute Time, Average Memory Transfer Time\n");
+        printf("%.3lf, %.6lf, %.6lf\n", avg_fps, avg_compress_time, avg_read_time);
     }
 
     // Clean up
@@ -272,6 +314,11 @@ void init()
 
     // Initialize frame count
     app.frame_count = 0;
+
+#ifndef USE_ICET_OGL3
+    // Initialize pixel transfer timer
+    app.pixel_read_time = 0.0;
+#endif
 
     // Initialize OpenGL stuff
     app.background_color = glm::vec4(0.0, 0.0, 0.0, 0.0);
@@ -412,6 +459,8 @@ void doFrame()
     glUseProgram(app.glsl_program["pointcloud"].program);
     glUniformMatrix4fv(app.glsl_program["pointcloud"].uniforms["model_matrix"], 1, GL_FALSE, mat4_model);
     glUseProgram(0);
+
+    app.frame_count++;
 }
 
 void renderIceTOGL3(const IceTDouble *projection_matrix, const IceTDouble *modelview_matrix,
@@ -441,6 +490,10 @@ void renderIceTGeneric(const IceTDouble *projection_matrix, const IceTDouble *mo
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // Copy image to IceT buffer
+    glFinish();
+
+    double start = MPI_Wtime();
+
     IceTUByte *pixels = icetImageGetColorub(result);
     IceTFloat *depth = icetImageGetDepthf(result);
 
@@ -449,6 +502,9 @@ void renderIceTGeneric(const IceTDouble *projection_matrix, const IceTDouble *mo
     glBindTexture(GL_TEXTURE_2D, app.framebuffer_depth);
     glGetTexImage(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, GL_FLOAT, depth);
     glBindTexture(GL_TEXTURE_2D, 0);
+
+    double end = MPI_Wtime();
+    app.pixel_read_time += end - start;
 }
 
 void render()
