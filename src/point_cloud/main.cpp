@@ -158,7 +158,8 @@ int main(int argc, char **argv)
     // Main render loop
     double start_time, end_time, elapsed, compress_time, read_time, collect;
     uint16_t should_close = 0;
-    uint32_t animation_frames = 180; //1440;
+    uint32_t animation_frames = 1440;
+    MPI_Barrier(MPI_COMM_WORLD);
     if (app.rank == 0)
     {
         start_time = MPI_Wtime();
@@ -199,16 +200,26 @@ int main(int argc, char **argv)
         double avg_fps = animation_frames / elapsed;
         double avg_compress_time = compress_time / animation_frames;
         double avg_read_time = read_time / animation_frames;
-#ifdef USE_ICET_OGL3
+#if defined(USE_ICET_OGL3) && defined(ICET_USE_PARICOMPRESS)
+        const char *composite_method = "IceT OGL3 w/ GPU Compression";
+        const char *composite_method_short = "IceTOGL3-GPU";
+#elif defined(USE_ICET_OGL3)
         const char *composite_method = "IceT OGL3";
+        const char *composite_method_short = "IceTOGL3-CPU";
 #else
         const char *composite_method = "IceT Generic";
+        const char *composite_method_short = "IceTGeneric";
 #endif
-        printf("Data Set, Image Width, Image Height, Composite Method, Number of Processes\n");
-        printf("GPS Point Cloud, %d, %d, %s, %d\n\n", app.window_width, app.window_height,
-               composite_method, app.num_proc);
-        printf("Average FPS, Average Compression Compute Time, Average Memory Transfer Time\n");
-        printf("%.3lf, %.6lf, %.6lf\n", avg_fps, avg_compress_time, avg_read_time);
+        char statfile[64];
+        snprintf(statfile, 64, "GPSPointCloud_%s_%dx%d_%dproc.txt", composite_method_short,
+                 app.window_width, app.window_height, app.num_proc);
+        FILE *fp = fopen(statfile, "w");
+        fprintf(fp, "Data Set, Image Width, Image Height, Composite Method, Number of Processes\n");
+        fprintf(fp, "GPS Point Cloud, %d, %d, %s, %d\n\n", app.window_width, app.window_height,
+                composite_method, app.num_proc);
+        fprintf(fp, "Average FPS, Average Compression Compute Time, Average Memory Transfer Time\n");
+        fprintf(fp, "%.3lf, %.6lf, %.6lf\n\n", avg_fps, avg_compress_time, avg_read_time);
+        fclose(fp);
     }
 
     // Clean up
@@ -256,12 +267,6 @@ void parseCommandLineArgs(int argc, char **argv)
 
 void init()
 {
-#ifdef USE_ICET_OGL3
-    printf("[Rank % 3d] Using IceT OGL3 Interface\n", app.rank);
-#else
-    printf("[Rank % 3d] Using IceT Generic Rendering Interface\n", app.rank);
-#endif
-
     // Initialize IceT
     app.comm = icetCreateMPICommunicator(MPI_COMM_WORLD);
     app.context = icetCreateContext(app.comm);
@@ -375,13 +380,11 @@ void init()
 
     // Load point cloud data
     float bbox[6];
-    //loadPointCloudData("resrc/data/osm_gps_2012.pcd", bbox);
-    loadPointCloudData("/projects/visualization/marrinan/data/OpenStreetMap_BulkGPS/pointcloud/resrc/data/osm_gps_2012_277M.pcd", bbox);
+    loadPointCloudData("resrc/data/osm_gps_2012.pcd", bbox);
+    //loadPointCloudData("/projects/visualization/marrinan/data/OpenStreetMap_BulkGPS/pointcloud/resrc/data/osm_gps_2012_277M.pcd", bbox);
 #ifdef USE_ICET_OGL3
     icetBoundingBoxf(bbox[0], bbox[1], bbox[2], bbox[3], bbox[4], bbox[5]);
 #endif
-    printf("[Rank % 3d] Point Cloud Bounding-Box: x = [%.2f, %.2f], y = [%.2f, %.2f], z = [%.2f, %.2f]\n",
-           app.rank, bbox[0], bbox[1], bbox[2], bbox[3], bbox[4], bbox[5]);
     float x_min, y_min, z_min, x_max, y_max, z_max;
     MPI_Allreduce(&(bbox[0]), &x_min, 1, MPI_FLOAT, MPI_MIN, MPI_COMM_WORLD);
     MPI_Allreduce(&(bbox[2]), &y_min, 1, MPI_FLOAT, MPI_MIN, MPI_COMM_WORLD);
@@ -487,7 +490,7 @@ void renderIceTGeneric(const IceTDouble *projection_matrix, const IceTDouble *mo
     // Render
     render();
 
-    // Deselect IceT framebuffer
+    // Deselect app's framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // Copy image to IceT buffer
@@ -602,7 +605,8 @@ void display()
         }
     }
 
-    // Display frame
+    // Synchronize and display
+    MPI_Barrier(MPI_COMM_WORLD);
     glfwSwapBuffers(app.window);
 }
 
