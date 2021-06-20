@@ -48,7 +48,8 @@ typedef struct AppData {
     bool show_fps;
     // Frame counter
     int frame_count;
-    double pixel_read_time;       // only used in IceT generic compositing
+    double pixel_read_time;
+    double pixel_compress_time;
     // Model info
     std::vector<ObjLoader*> model_list;
     GLuint plane_vertex_array;
@@ -174,7 +175,7 @@ int main(int argc, char **argv)
     // Main render loop
     double start_time, end_time, elapsed, compress_time, read_time, collect;
     uint16_t should_close = 0;
-    uint32_t animation_frames = 1440;
+    uint32_t animation_frames = 180;
     MPI_Barrier(MPI_COMM_WORLD);
     if (app.rank == 0)
     {
@@ -200,16 +201,12 @@ int main(int argc, char **argv)
     }
 
     // AVERAGE or MAX more useful???
-    icetGetDoublev(ICET_COMPRESS_TIME, &compress_time);
-    MPI_Reduce(&compress_time, &collect, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    compress_time = collect / (double)app.num_proc;
-#ifdef USE_ICET_OGL3
-    icetGetDoublev(ICET_BUFFER_READ_TIME, &read_time);
-#else
+    compress_time = app.pixel_compress_time;
+    MPI_Reduce(&compress_time, &collect, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    compress_time = collect; //collect / (double)app.num_proc;
     read_time = app.pixel_read_time;
-#endif
-    MPI_Reduce(&read_time, &collect, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    read_time = collect / (double)app.num_proc;
+    MPI_Reduce(&read_time, &collect, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    read_time = collect; //collect / (double)app.num_proc;
 
     if (app.rank == 0)
     {
@@ -227,13 +224,13 @@ int main(int argc, char **argv)
         const char *composite_method_short = "IceTGeneric";
 #endif
         char statfile[64];
-        snprintf(statfile, 64, "NuclearPowerStation_%s_%dx%d_%dproc.txt", composite_method_short,
+        snprintf(statfile, 64, "Neurons_%s_%dx%d_%dproc.txt", composite_method_short,
                  app.window_width, app.window_height, app.num_proc);
         FILE *fp = fopen(statfile, "w");
         fprintf(fp, "Data Set, Image Width, Image Height, Composite Method, Number of Processes\n");
-        fprintf(fp, "Nuclear Power Station, %d, %d, %s, %d\n\n", app.window_width, app.window_height,
+        fprintf(fp, "Neurons, %d, %d, %s, %d\n\n", app.window_width, app.window_height,
                 composite_method, app.num_proc);
-        fprintf(fp, "Average FPS, Average Compression Compute Time, Average Memory Transfer Time\n");
+        fprintf(fp, "Average FPS, Average Max Compression Compute Time, Average Max Memory Transfer Time\n");
         fprintf(fp, "%.3lf, %.6lf, %.6lf\n\n", avg_fps, avg_compress_time, avg_read_time);
         fclose(fp);
     }
@@ -353,7 +350,9 @@ void init()
 
     // Initialize frame count
     app.frame_count = 0;
-    
+    app.pixel_read_time = 0.0;
+    app.pixel_compress_time = 0.0;
+
     // Initialize text renderer
     if (app.show_fps)
     {
@@ -442,7 +441,8 @@ void init()
 
     // Load nuclear station OBJ models
     float bbox[6];
-    loadObjModels("resrc/data/neuron_models", bbox);
+    //loadObjModels("resrc/data/neuron_models", bbox);
+    loadObjModels("/projects/visualization/marrinan/data/neuron_models", bbox);
 #ifdef USE_ICET_OGL3
     icetBoundingBoxf(bbox[0], bbox[1], bbox[2], bbox[3], bbox[4], bbox[5]);
 #endif
@@ -505,10 +505,18 @@ void doFrame()
 #ifdef USE_ICET_OGL3
     app.image = icetGL3DrawFrame(glm::value_ptr(app.projection_matrix),
                                  glm::value_ptr(modelview_matrix));
+    double read_time, compress_time;
+    icetGetDoublev(ICET_BUFFER_READ_TIME, &read_time);
+    app.pixel_read_time += read_time;
+    icetGetDoublev(ICET_COMPRESS_TIME, &compress_time);
+    app.pixel_compress_time += compress_time;
 #else
     app.image = icetDrawFrame(glm::value_ptr(app.projection_matrix),
                               glm::value_ptr(app.view_matrix),
                               glm::value_ptr(app.background_color));
+    double compress_time;
+    icetGetDoublev(ICET_COMPRESS_TIME, &compress_time);
+    app.pixel_compress_time += compress_time;
 #endif
 
     // Render composited image to fullscreen quad on screen of rank 0
@@ -551,7 +559,7 @@ void doFrame()
 
     //double dt = now - app.render_time;
     //app.rotate_y -= 15.0 * dt;
-    app.rotate_y -= 0.25;
+    app.rotate_y -= 2.0;
     app.model_matrix = glm::translate(glm::dmat4(1.0), glm::dvec3(40.0, 28.0, -20.0));
     app.model_matrix = glm::rotate(app.model_matrix, glm::radians(app.rotate_y), glm::dvec3(0.0, 1.0, 0.0));
     app.model_matrix = glm::translate(app.model_matrix, glm::dvec3(-40.0, -28.0, 20.0));
