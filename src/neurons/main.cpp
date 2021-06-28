@@ -220,9 +220,6 @@ int main(int argc, char **argv)
         // Render frame
         doFrame();
 
-        // poll for user events
-        glfwPollEvents();
-
         // check if any window has been closed
         uint16_t close_this = (app.frame_count == animation_frames);
         MPI_Allreduce(&close_this, &should_close, 1, MPI_UINT16_T, MPI_SUM, MPI_COMM_WORLD);
