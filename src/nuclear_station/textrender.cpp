@@ -1,5 +1,12 @@
 #include "textrender.h"
 
+static FT_Library ft;
+static void convertUtf8ToUtf32(unsigned char *source, uint16_t bytes, uint32_t *target);
+static void getRenderedGlyphsFromString(TR_FontFace *font, std::string utf8_text,
+                                        uint32_t *width, uint32_t *height, uint32_t *baseline,
+                                        std::vector<TR_CharGlyph> *glyphs);
+
+
 void TR_Initialize()
 {
     if (FT_Init_FreeType(&ft))
@@ -290,3 +297,4 @@ void getRenderedGlyphsFromString(TR_FontFace *font, std::string utf8_text, uint3
 
     *height = top - bottom;
 }
+

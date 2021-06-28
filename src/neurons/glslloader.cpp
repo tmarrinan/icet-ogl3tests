@@ -1,5 +1,10 @@
 #include "glslloader.h"
 
+static GLint compileShader(char *source, int32_t length, GLenum type);
+static GLuint attachShaders(GLuint shaders[], uint16_t num_shaders);
+static std::string shaderTypeToString(GLenum type);
+static int32_t readFile(const char* filename, char** data_ptr);
+
 // Public
 GLuint glsl::createShaderProgram(const char *vert_filename, const char *frag_filename)
 {
@@ -64,7 +69,7 @@ void glsl::getShaderProgramUniforms(GLuint program, std::map<std::string,GLint>&
 
 
 // Private
-GLint glsl::compileShader(char *source, int32_t length, GLenum type)
+GLint compileShader(char *source, int32_t length, GLenum type)
 {
     // Create a shader object
     GLint status;
@@ -97,7 +102,7 @@ GLint glsl::compileShader(char *source, int32_t length, GLenum type)
     return shader;
 }
 
-GLuint glsl::attachShaders(GLuint shaders[], uint16_t num_shaders)
+GLuint attachShaders(GLuint shaders[], uint16_t num_shaders)
 {
     // Create a GPU program
     GLuint program = glCreateProgram();
@@ -112,7 +117,7 @@ GLuint glsl::attachShaders(GLuint shaders[], uint16_t num_shaders)
     return program;
 }
 
-std::string glsl::shaderTypeToString(GLenum type)
+std::string shaderTypeToString(GLenum type)
 {
     std::string shader_type;
     switch (type)
@@ -136,7 +141,7 @@ std::string glsl::shaderTypeToString(GLenum type)
     return shader_type;
 }
 
-int32_t glsl::readFile(const char* filename, char** data_ptr)
+int32_t readFile(const char* filename, char** data_ptr)
 {
     FILE *fp;
     int err = 0;
@@ -167,3 +172,4 @@ int32_t glsl::readFile(const char* filename, char** data_ptr)
 
     return fsize;
 }
+

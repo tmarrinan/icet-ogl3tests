@@ -160,7 +160,8 @@ int main(int argc, char **argv)
 
     // Make window's context current
     glfwMakeContextCurrent(app.window);
-    glfwSwapInterval(1);
+    //glfwSwapInterval(1);
+    glfwSwapInterval(0);
 
     // Initialize GLAD OpenGL extension handling
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
@@ -202,11 +203,11 @@ int main(int argc, char **argv)
 
     // AVERAGE or MAX more useful???
     compress_time = app.pixel_compress_time;
-    MPI_Reduce(&compress_time, &collect, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-    compress_time = collect; //collect / (double)app.num_proc;
+    MPI_Reduce(&compress_time, &collect, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    compress_time = collect / (double)app.num_proc;
     read_time = app.pixel_read_time;
-    MPI_Reduce(&read_time, &collect, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
-    read_time = collect; //collect / (double)app.num_proc;
+    MPI_Reduce(&read_time, &collect, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    read_time = collect / (double)app.num_proc;
 
     if (app.rank == 0)
     {
@@ -230,7 +231,7 @@ int main(int argc, char **argv)
         fprintf(fp, "Data Set, Image Width, Image Height, Composite Method, Number of Processes\n");
         fprintf(fp, "Nuclear Power Station, %d, %d, %s, %d\n\n", app.window_width, app.window_height,
                 composite_method, app.num_proc);
-        fprintf(fp, "Average FPS, Average Max Compression Compute Time, Average Max Memory Transfer Time\n");
+        fprintf(fp, "Average FPS, Average Compression Compute Time, Average Memory Transfer Time\n");
         fprintf(fp, "%.3lf, %.6lf, %.6lf\n\n", avg_fps, avg_compress_time, avg_read_time);
         fclose(fp);
     }
@@ -508,6 +509,7 @@ void doFrame()
     icetGetDoublev(ICET_BUFFER_READ_TIME, &read_time);
     app.pixel_read_time += read_time;
     icetGetDoublev(ICET_COMPRESS_TIME, &compress_time);
+    printf("ICET> compress time: %.6lf\n", compress_time);
     app.pixel_compress_time += compress_time;
 #else
     double compress_time;

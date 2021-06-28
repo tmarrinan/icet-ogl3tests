@@ -14,7 +14,7 @@ CXX= g++
 else
 CXX= mpicxx
 endif
-CXXFLAGS+= -std=c++11
+override CXXFLAGS+= -Wno-sign-compare -Wno-maybe-uninitialized -std=c++11
 
 # Tests
 TEST1= nuclear_station
@@ -37,8 +37,8 @@ else ifeq ($(DETECTED_OS),Darwin)
 	INC= -I$(HOME)/local/include -I/usr/local/include/freetype2 -I./include
 	LIB= -L$(HOME)/local/lib -lIceTCore -lIceTGL3 -lIceTMPI -lglfw -lglad -lfreetype
 else
-	INC= -I$(HOME)/local/include -I$(HOME)/local/include/freetype2 -I./include
-	LIB= -L$(HOME)/local/lib -lGL -lIceTCore -lIceTGL3 -lIceTMPI -lglfw -lglad -lfreetype
+	INC= -I$(HOME)/local/include -I$(HOME)/local/include/freetype2 -I/usr/include/freetype2 -I./include
+	LIB= -L$(HOME)/local/lib -lGL -lIceTCore -lIceTGL3 -lIceTMPI -lglfw -lglad -lfreetype -ldl
 endif
 
 # Create output directories and set output file names
