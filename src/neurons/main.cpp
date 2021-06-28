@@ -3,9 +3,12 @@
 #include <string>
 #include <vector>
 #include <map>
+#ifdef __linux__
+#define MESA_EGL_NO_X11_HEADERS
+#endif
 #include <glad/glad.h>
-#define GLFW_INCLUDE_NONE
-#include <GLFW/glfw3.h>
+#include <glad/glad_egl.h>
+#include <EGL/egl.h>
 #include <glm/mat4x4.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -22,8 +25,6 @@
 #define M_PI (3.14159265358979323846)
 #endif
 
-#define WINDOW_TITLE "Neurons (IceT)"
-
 
 typedef struct GlslProgram {
     GLuint program;
@@ -37,7 +38,9 @@ typedef struct AppData {
     // OpenGL window
     int window_width;
     int window_height;
-    GLFWwindow *window;
+    int gpu_count;
+    EGLDisplay egl_display;
+    EGLSurface egl_surface;
     // IceT info
     IceTCommunicator comm;
     IceTContext context;
@@ -135,35 +138,66 @@ int main(int argc, char **argv)
     // Parse command line parameters (or use defaults)
     parseCommandLineArgs(argc, argv);
 
-    // Initialize GLFW
-    if (!glfwInit())
+    // Initialize GLAD EGL extension handling
+    if (!gladLoadEGL())
     {
-        fprintf(stderr, "Error: could not initialize GLFW\n");
-        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+         fprintf(stderr, "Error: could not initialize GLAD EGL\n");
+         MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
     }
 
-    // Create a window and its OpenGL context
-    char title[32];
-    snprintf(title, 32, "%s (%d)", WINDOW_TITLE, app.rank);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    if (app.rank == 0)
-    {
-        app.window = glfwCreateWindow(app.window_width, app.window_height, title, NULL, NULL);
-    }
-    else
-    {
-        app.window = glfwCreateWindow(320, 180, title, NULL, NULL);
-    }
+    // Initialize EGL
+    static const int MAX_DEVICES = 16;
+    EGLDeviceEXT egl_devices[MAX_DEVICES];
+    EGLint num_devices;
+    eglQueryDevicesEXT(MAX_DEVICES, egl_devices, &num_devices);
+    int device_id = (app.gpu_count * app.rank) / app.num_proc;
+    if (device_id >= num_devices) device_id = 0;
+    printf("[Rank % 2d] using device %d / %d\n", app.rank, device_id, num_devices);
+    app.egl_display = eglGetPlatformDisplayEXT(EGL_PLATFORM_DEVICE_EXT, egl_devices[device_id], NULL);
+    EGLint egl_major, egl_minor;
+    eglInitialize(app.egl_display, &egl_major, &egl_minor);
 
-    // Make window's context current
-    glfwMakeContextCurrent(app.window);
-    glfwSwapInterval(1);
+    // Select EGL configuration
+    EGLint num_configs;
+    EGLConfig egl_config;
+    static const EGLint config_attribs[] = {
+        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
+        EGL_RED_SIZE, 8,
+        EGL_GREEN_SIZE, 8,
+        EGL_BLUE_SIZE, 8,
+        EGL_ALPHA_SIZE, 8,
+        EGL_DEPTH_SIZE, 24,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
+        EGL_NONE
+    };
+    eglChooseConfig(app.egl_display, config_attribs, &egl_config, 1, &num_configs);
+
+    // Create EGL surface
+    static const int pbuffer_width = (app.rank == 0) ? app.window_width : 320;
+    static const int pbuffer_height = (app.rank == 0) ? app.window_height : 180;
+    static const EGLint pbuffer_attribs[] = {
+        EGL_WIDTH, pbuffer_width,
+        EGL_HEIGHT, pbuffer_height,
+        EGL_NONE
+    };
+    app.egl_surface = eglCreatePbufferSurface(app.egl_display, egl_config, pbuffer_attribs);
+
+    // Bind API
+    eglBindAPI(EGL_OPENGL_API);
+
+    // Create OpenGL context and make it current
+    static const EGLint context_attribs[] = {
+        EGL_CONTEXT_MAJOR_VERSION, 3,
+        EGL_CONTEXT_MINOR_VERSION, 2,
+        EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
+        EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE, EGL_TRUE,
+        EGL_NONE
+    };
+    EGLContext egl_ctx = eglCreateContext(app.egl_display, egl_config, EGL_NO_CONTEXT, context_attribs);
+    eglMakeCurrent(app.egl_display, app.egl_surface, app.egl_surface, egl_ctx);
 
     // Initialize GLAD OpenGL extension handling
-    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
+    if (!gladLoadGL())
     {
         fprintf(stderr, "Error: could not initialize GLAD\n");
         MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
@@ -190,8 +224,7 @@ int main(int argc, char **argv)
         glfwPollEvents();
 
         // check if any window has been closed
-        uint16_t close_this = glfwWindowShouldClose(app.window);
-        close_this |= (app.frame_count == animation_frames);
+        uint16_t close_this = (app.frame_count == animation_frames);
         MPI_Allreduce(&close_this, &should_close, 1, MPI_UINT16_T, MPI_SUM, MPI_COMM_WORLD);
     }
     if (app.rank == 0)
@@ -238,8 +271,7 @@ int main(int argc, char **argv)
     // Clean up
     icetDestroyMPICommunicator(app.comm);
     icetDestroyContext(app.context);
-    glfwDestroyWindow(app.window);
-    glfwTerminate();
+    eglTerminate(app.egl_display);
     
     MPI_Finalize();
 
@@ -251,6 +283,7 @@ void parseCommandLineArgs(int argc, char **argv)
     // Defaults
     app.window_width = 1280;
     app.window_height = 720;
+    app.gpu_count = 1;
     app.show_fps = false;
     app.color_by_rank = false;
     app.outfile = "";
@@ -268,6 +301,11 @@ void parseCommandLineArgs(int argc, char **argv)
         else if ((argument == "--height" || argument == "-h") && i < argc - 1)
         {
             app.window_height = std::stoi(argv[i + 1]);
+            i += 2;
+        }
+        else if ((argument == "--gpu-count" || argument == "-g") && i < argc - 1)
+        {
+            app.gpu_count = std::stoi(argv[i+1]);
             i += 2;
         }
         else if (argument == "--show-fps" || argument == "-f")
@@ -583,6 +621,9 @@ void renderIceTOGL3(const IceTDouble *projection_matrix, const IceTDouble *model
 
     // Deselect IceT framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // Wait for frame to render - needed for proper timing
+    glFinish();
 }
 
 void renderIceTGeneric(const IceTDouble *projection_matrix, const IceTDouble *modelview_matrix,
@@ -744,14 +785,17 @@ void display()
 
         if (app.outfile != "")
         {
-            int i;
+            int i, j;
             char filename[128];
             snprintf(filename, 128, "%s_%05d.ppm", app.outfile.c_str(), app.frame_count);
             FILE *fp = fopen(filename, "wb");
             fprintf(fp, "P6\n%d %d\n255\n", app.window_width, app.window_height);
-            for (i = 0; i < app.window_width * app.window_height; i++)
+            for (j = app.window_height - 1; i >= 0; j--)
             {
-                fwrite(pixels + (4 * i), 3, 1, fp);
+                for (i = 0; i < app.window_width; i++)
+                {
+                    fwrite(pixels + (4 * app.window_width * j) + (4 * i), 3, 1, fp);
+                }
             }
             fclose(fp);
         }
@@ -759,7 +803,7 @@ void display()
     
     // Synchronize and display
     MPI_Barrier(MPI_COMM_WORLD);
-    glfwSwapBuffers(app.window);
+    eglSwapBuffers(app.egl_display, app.egl_surface);
 }
 
 void mat4ToFloatArray(glm::dmat4 mat4, float array[16])

@@ -25,8 +25,6 @@
 #define M_PI (3.14159265358979323846)
 #endif
 
-#define WINDOW_TITLE "Nuclear Station (IceT)"
-
 
 typedef struct GlslProgram {
     GLuint program;
@@ -40,7 +38,7 @@ typedef struct AppData {
     // OpenGL window
     int window_width;
     int window_height;
-    uint32_t gpu_count;
+    int gpu_count;
     EGLDisplay egl_display;
     EGLSurface egl_surface;
     // IceT info
@@ -616,6 +614,9 @@ void renderIceTOGL3(const IceTDouble *projection_matrix, const IceTDouble *model
 
     // Deselect IceT framebuffer
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // Wait for frame to render - needed for proper timing
+    glFinish();
 }
 
 void renderIceTGeneric(const IceTDouble *projection_matrix, const IceTDouble *modelview_matrix,
