@@ -32,13 +32,13 @@ ifeq ($(DETECTED_OS),Windows)
 	MPI_LIB= $(patsubst %\,%,$(MSMPI_LIB64))
 
 	INC= -I"$(MPI_INC)" -I"$(MPI_INC)\x64" -I"$(HOMEPATH)\local\include" -I"$(HOMEPATH)\local\include\freetype2" -I.\include
-	LIB= -L"$(MPI_LIB)" -L"$(HOMEPATH)\local\lib" -lmsmpi -lIceTCore -lIceTGL3 -lIceTMPI -lglfw3dll -lglad -lfreetype
+	LIB= -L"$(MPI_LIB)" -L"$(HOMEPATH)\local\lib" -lmsmpi -lIceTCore -lIceTGL3 -lIceTMPI -lglfw3dll -lglad -lglad_egl -lfreetype
 else ifeq ($(DETECTED_OS),Darwin)
 	INC= -I$(HOME)/local/include -I/usr/local/include/freetype2 -I./include
-	LIB= -L$(HOME)/local/lib -lIceTCore -lIceTGL3 -lIceTMPI -lglfw -lglad -lfreetype
+	LIB= -L$(HOME)/local/lib -lIceTCore -lIceTGL3 -lIceTMPI -lglfw -lglad -lglad_egl -lfreetype
 else
 	INC= -I$(HOME)/local/include -I$(HOME)/local/include/freetype2 -I/usr/include/freetype2 -I./include
-	LIB= -L$(HOME)/local/lib -lGL -lIceTCore -lIceTGL3 -lIceTMPI -lglfw -lglad -lfreetype -ldl
+	LIB= -L$(HOME)/local/lib -lGL -lEGL -lIceTCore -lIceTGL3 -lIceTMPI -lglfw -lglad -lglad_egl -lfreetype -ldl
 endif
 
 # Create output directories and set output file names
