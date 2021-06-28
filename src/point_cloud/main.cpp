@@ -148,10 +148,14 @@ int main(int argc, char **argv)
     int device_id = (app.gpu_count * app.rank) / app.num_proc;
     if (device_id >= num_cuda_devices) device_id = 0;
     printf("[Rank % 2d] Using OpenGL-CUDA device %d / %d\n", app.rank, device_id, num_cuda_devices);
-    
     app.egl_display = eglGetPlatformDisplayEXT(EGL_PLATFORM_DEVICE_EXT, egl_cuda_devices[device_id], NULL);
     EGLint egl_major, egl_minor;
     eglInitialize(app.egl_display, &egl_major, &egl_minor);
+
+    if (!gladLoadEGLLoader((GLADloadproc)eglGetProcAddress)) {
+        fprintf(stderr, "Error: could not initialize GLAD EGL\n");
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+    }
 
     // Select EGL configuration
     EGLint num_configs;
@@ -193,7 +197,7 @@ int main(int argc, char **argv)
     eglMakeCurrent(app.egl_display, app.egl_surface, app.egl_surface, egl_ctx);
 
     // Initialize GLAD OpenGL extension handling
-    if (!gladLoadGL())
+    if (!gladLoadGLLoader((GLADloadproc)eglGetProcAddress))
     {
         fprintf(stderr, "Error: could not initialize GLAD\n");
         MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
