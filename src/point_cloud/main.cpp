@@ -128,14 +128,28 @@ int main(int argc, char **argv)
     }
 
     // Initialize EGL
+    int i;
     static const int MAX_DEVICES = 16;
     EGLDeviceEXT egl_devices[MAX_DEVICES];
+    EGLDeviceEXT egl_cuda_devices[MAX_DEVICES];
     EGLint num_devices;
+    EGLint num_cuda_devices = 0;
     eglQueryDevicesEXT(MAX_DEVICES, egl_devices, &num_devices);
+    EGLAttrib cuda_index; 
+    for (i = 0; i < num_devices; i++)
+    {
+        if (eglQueryDeviceAttribEXT(egl_devices[i], EGL_CUDA_DEVICE_NV, &cuda_index))
+        {
+            egl_cuda_devices[num_cuda_devices] = egl_devices[i];
+            num_cuda_devices++;
+        }
+        //printf("[Rank % 2d] device %d: %s\n", app.rank, i, eglQueryDeviceStringEXT(egl_devices[i], EGL_EXTENSIONS));
+    }
     int device_id = (app.gpu_count * app.rank) / app.num_proc;
-    if (device_id >= num_devices) device_id = 0;
-    printf("[Rank % 2d] using device %d / %d\n", app.rank, device_id, num_devices);
-    app.egl_display = eglGetPlatformDisplayEXT(EGL_PLATFORM_DEVICE_EXT, egl_devices[device_id], NULL);
+    if (device_id >= num_cuda_devices) device_id = 0;
+    printf("[Rank % 2d] Using OpenGL-CUDA device %d / %d\n", app.rank, device_id, num_cuda_devices);
+    
+    app.egl_display = eglGetPlatformDisplayEXT(EGL_PLATFORM_DEVICE_EXT, egl_cuda_devices[device_id], NULL);
     EGLint egl_major, egl_minor;
     eglInitialize(app.egl_display, &egl_major, &egl_minor);
 
@@ -410,7 +424,8 @@ void init()
     float bbox[6];
     //loadPointCloudData("resrc/data/osm_gps_2012.pcd", bbox);
     //loadPointCloudData("/projects/visualization/marrinan/data/OpenStreetMap_BulkGPS/osm_gps_2012_277M.pcd", bbox);
-    loadPointCloudData("/projects/visualization/marrinan/data/OpenStreetMap_BulkGPS/osm_gps_2012_138.5M.pcd", bbox);
+    //loadPointCloudData("/projects/visualization/marrinan/data/OpenStreetMap_BulkGPS/osm_gps_2012_138.5M.pcd", bbox);
+    loadPointCloudData("/projects/visualization/marrinan/data/OpenStreetMap_BulkGPS/osm_gps_2012_55.4M.pcd", bbox);
 #ifdef USE_ICET_OGL3
     icetBoundingBoxf(bbox[0], bbox[1], bbox[2], bbox[3], bbox[4], bbox[5]);
 #endif
