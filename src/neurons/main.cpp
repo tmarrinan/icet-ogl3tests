@@ -141,21 +141,39 @@ int main(int argc, char **argv)
     // Initialize GLAD EGL extension handling
     if (!gladLoadEGL())
     {
-         fprintf(stderr, "Error: could not initialize GLAD EGL\n");
-         MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+        fprintf(stderr, "Error: could not initialize GLAD EGL\n");
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
     }
 
     // Initialize EGL
+    int i;
     static const int MAX_DEVICES = 16;
     EGLDeviceEXT egl_devices[MAX_DEVICES];
+    EGLDeviceEXT egl_cuda_devices[MAX_DEVICES];
     EGLint num_devices;
+    EGLint num_cuda_devices = 0;
     eglQueryDevicesEXT(MAX_DEVICES, egl_devices, &num_devices);
+    EGLAttrib cuda_index;
+    for (i = 0; i < num_devices; i++)
+    {
+        if (eglQueryDeviceAttribEXT(egl_devices[i], EGL_CUDA_DEVICE_NV, &cuda_index))
+        {
+            egl_cuda_devices[num_cuda_devices] = egl_devices[i];
+            num_cuda_devices++;
+        }
+        //printf("[Rank % 2d] device %d: %s\n", app.rank, i, eglQueryDeviceStringEXT(egl_devices[i], EGL_EXTENSIONS));
+    }
     int device_id = (app.gpu_count * app.rank) / app.num_proc;
-    if (device_id >= num_devices) device_id = 0;
-    printf("[Rank % 2d] using device %d / %d\n", app.rank, device_id, num_devices);
-    app.egl_display = eglGetPlatformDisplayEXT(EGL_PLATFORM_DEVICE_EXT, egl_devices[device_id], NULL);
+    if (device_id >= num_cuda_devices) device_id = 0;
+    printf("[Rank % 2d] using device %d / %d\n", app.rank, device_id, num_cuda_devices);
+    app.egl_display = eglGetPlatformDisplayEXT(EGL_PLATFORM_DEVICE_EXT, egl_cuda_devices[device_id], NULL);
     EGLint egl_major, egl_minor;
     eglInitialize(app.egl_display, &egl_major, &egl_minor);
+
+    if (!gladLoadEGLLoader((GLADloadproc)eglGetProcAddress)) {
+        fprintf(stderr, "Error: could not initialize GLAD EGL\n");
+        MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+    }
 
     // Select EGL configuration
     EGLint num_configs;
@@ -197,7 +215,7 @@ int main(int argc, char **argv)
     eglMakeCurrent(app.egl_display, app.egl_surface, app.egl_surface, egl_ctx);
 
     // Initialize GLAD OpenGL extension handling
-    if (!gladLoadGL())
+    if (!gladLoadGLLoader((GLADloadproc)eglGetProcAddress))
     {
         fprintf(stderr, "Error: could not initialize GLAD\n");
         MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
